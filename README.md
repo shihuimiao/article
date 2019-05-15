@@ -42,7 +42,7 @@
 ### 问题二：
 #### 问题根源之一:乐观锁重试次数过小
 ![avatar](https://github.com/shihuimiao/study-log/blob/master/WechatIMG66.png?raw=true)
-
+#### 解决办法:重试次数调大（这里也会有问题，假设拆的单超过重试次数就有机率发生这种问题）最终决定业务上根据trade纬度来执行逻辑，从根源上避免了产生了并发的问题
 
 
 
