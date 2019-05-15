@@ -8,36 +8,23 @@
 最开始开发这块逻辑的时候没有考虑到并发的问题，所以先update之后又去select了用户的数据，导致select出来的是两次更新之后的结果，所以两个线程都会发布等级变化的事件。之后监听了这个事件的所有listener都会执行相应的操作。
 ![avatar](https://github.com/shihuimiao/study-log/blob/master/WechatIMG65.png?raw=true)
 
+- 代码片段中 可以看出来先执行了changeMemberGrowthValue执行了update之后又去xretailMemberGrowthDao.selectByUid select了用户数据导致得到的数据是不是这个事件产生的数据 而是并发update之后的数据，最后两个线程都发布了等级变化的事件
 ```java
         Long growthWaterId = addMemberGrowthWater(eventBO);
 
-        if (growthWaterId > 0) {
-            Integer update = changeMemberGrowthValue(eventBO);
-            if (update == 0) {
-                logger.info("process update growth failed:{}", eventBO);
-            }
-            changeMemberLevel(eventBO, growthWaterId);
+        Integer update = changeMemberGrowthValue(eventBO);
+        if (update == 0) {
+            logger.info("process update growth failed:{}", eventBO);
         }
-        
-        private Integer changeMemberGrowth(GrowthValueChangeEventBO eventBO, Long growthWaterId) {
         int retry = 0;
-        while (retry < 20) {
+        while (retry < 3) {
             XretailMemberGrowthDO xretailMemberGrowthDO = xretailMemberGrowthDao.selectByUid(eventBO.getUid());
             if (xretailMemberGrowthDO == null) {
                 return 0;
             }
-
-            //获取等级
-            long newValue = xretailMemberGrowthDO.getValue() + eventBO.getValue();
-
-            Integer newlevel = GrowthWaterVipLimitMapEnum.getVipByGrowth(newValue);
-
-            //对于升级成V1以上的用户,保级处罚时不会降级到V0
             if (xretailMemberGrowthDO.getLevel() > 0 && newlevel < 1 && (eventBO.getSource() == GrowthWaterSourceConstans.SOURCE_LEVEL_TASK_REDUCE)) {
                 newlevel = 1;
             }
-
-            Integer version = xretailMemberGrowthDO.getVersion();
             Integer updateRes = xretailMemberGrowthDao.updateMemberGrowthByUidWithVersion(eventBO.getUid(), newlevel, eventBO.getValue(), version);
             if (updateRes > 0) {
                 //发布等级变化的事件
@@ -48,8 +35,5 @@
             }
             retry++;
         }
-
-        return null;
-    }
 ```
 
