@@ -5,7 +5,7 @@
 贝仓业务上用了rocketmq来获取交易那的订单数据，因为交易那会拆分trade生成多笔订单，所以会产生多笔订单并发到系统中，然后业务上给用户发送奖励是按照订单纬度。业务中用了event/listener来结偶逻辑。
 
 ### 问题一：
-#### 问题根源之一:业务逻辑中select之后update又重新去select取数据
+#### 问题根源之一:业务逻辑中update又重新去select取数据
 最开始开发这块逻辑的时候没有考虑到并发的问题，所以先update之后又去select了用户的数据，导致select出来的是两次更新之后的结果，所以两个线程都会发布等级变化的事件。之后监听了这个事件的所有listener都会执行相应的操作。
 ![avatar](https://github.com/shihuimiao/study-log/blob/master/WechatIMG65.png?raw=true)
 
@@ -68,6 +68,41 @@
     }
 ```
 #### 解决办法:多并发下update添加一个版本号(相当于添加了乐观锁) 然后select在update之前 改变后的值是自己代码来控制
+代码片段中 先用xretailMemberGrowthDao.selectByUid(eventBO.getUid()) select数据库中最初的值,然后用updateMemberGrowthByUidWithVersion更新了数据库的数据(使用乐观锁),可以看到业务逻辑自己去计算了newValue的值，没有从数据库中读取，这就可以避免从数据库中得到不是这个线程想要的那个值了
+```java
+private Integer changeMemberGrowth(GrowthValueChangeEventBO eventBO, Long growthWaterId) {
+        int retry = 0;
+        while (retry < 3) {
+            XretailMemberGrowthDO xretailMemberGrowthDO = xretailMemberGrowthDao.selectByUid(eventBO.getUid());
+            if (xretailMemberGrowthDO == null) {
+                return 0;
+            }
+
+            //获取等级
+            long newValue = xretailMemberGrowthDO.getValue() + eventBO.getValue();
+
+            Integer newlevel = GrowthWaterVipLimitMapEnum.getVipByGrowth(newValue);
+
+            //对于升级成V1以上的用户,保级处罚时不会降级到V0
+            if (xretailMemberGrowthDO.getLevel() > 0 && newlevel < 1 && (eventBO.getSource() == GrowthWaterSourceConstans.SOURCE_LEVEL_TASK_REDUCE)) {
+                newlevel = 1;
+            }
+
+            Integer version = xretailMemberGrowthDO.getVersion();
+            Integer updateRes = xretailMemberGrowthDao.updateMemberGrowthByUidWithVersion(eventBO.getUid(), newlevel, eventBO.getValue(), version);
+            if (updateRes > 0) {
+                //发布等级变化的事件
+                if (newlevel > xretailMemberGrowthDO.getLevel()) {
+                    publishLevelChangeEvent(new LevelChangeEventBO(eventBO.getUid(), xretailMemberGrowthDO.getLevel(), newlevel, DateUtils.getNowTime(), growthWaterId, eventBO.getSource()));
+                }
+                return 1;
+            }
+            retry++;
+        }
+
+        return null;
+    }
+```
 
 ### 问题二：
 #### 问题根源之一:乐观锁重试次数过小
