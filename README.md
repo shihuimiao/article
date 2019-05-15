@@ -41,7 +41,7 @@
 
 ### 问题二：
 #### 问题根源之一:乐观锁重试次数过小
-
+![avatar](https://github.com/shihuimiao/study-log/blob/master/WechatIMG66.png?raw=true)
 
 
 
