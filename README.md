@@ -9,7 +9,7 @@
 一开始开发这块业务的时候并没有考虑到并发的问题，所以代码中先是update了数据之后又去select用户数据，导致select出来的是并发更新之后的结果(对业务逻辑来说这是脏数据)，所以多个线程都会发布等级变化的事件。监听了这个等级变更事件的所有listener都会执行后续操作(其中有个操作就是就是升级奖励,导致的后果就是用户获得多次升级奖励:如发卡券,奖励积分等)。下图展示的是两个(理解了两个之后就可以理解多个的情况)处理线程并发所可能产生的结果。
 ![avatar](https://github.com/shihuimiao/study-log/blob/master/WechatIMG65.png?raw=true)
 
-代码片段中 可以看出来先执行了changeMemberGrowthValue执行了update之后又去xretailMemberGrowthDao.selectByUid select了用户数据(这里update增加的数据和select的数据是同一张表的同一个字段)导致得到的数据不是这个事件产生的数据(因为拿到字段的值是并发下可能是多个事件update之后的值了)，最后多个线程都发布了等级变化事件(按照业务逻辑只有其中一个事件才能触发)。
+代码片段中 可以看出来先执行了changeMemberGrowthValue执行了update之后又去xretailMemberGrowthDao.selectByUid select了用户数据(这里update增加的数据和select的数据是同一张表的同一个字段)导致得到的数据不是这个事件产生的数据(因为拿到字段的值是并发下可能是多个事件update之后的值了)，最后多个线程都发布了等级变化事件(按照业务逻辑只有其中一个线程能触发)。
 ```java
         public void onApplicationEvent(GrowthValueChangeEvent event) {
         GrowthValueChangeEventBO eventBO = event.getGrowthValueChangeEventBO();
