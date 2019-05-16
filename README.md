@@ -67,7 +67,7 @@
         return null;
     }
 ```
-#### 解决办法:多并发下update添加一个版本号(相当于添加了乐观锁) 然后select在update之前 改变后的值是自己代码来控制
+#### 解决办法:多并发下update添加一个版本号(乐观锁) 然后select在update之前 改变后的值是自己代码来控制
 代码片段中 先用xretailMemberGrowthDao.selectByUid(eventBO.getUid()) select数据库中最初的值,然后用updateMemberGrowthByUidWithVersion更新了数据库的数据(使用乐观锁),可以看到业务逻辑自己去计算了newValue的值，而不是从数据库中去select这样就避免了从数据库中读到的数据并不是自己想要的而是对业务来说的脏数据，这里使用乐观锁还有一个原因是考虑到了并发下可能多个线程共同更新数据成功，拿着后续的数据可能又会导致多个线程满足升级的逻辑，所以这里重试可以保证不会出现这种错误产生(因为一个线程读取的数据肯定是用户最新的数据，这时你拿到的用户newlevel已经是升级后的就不会再次去发布等级变更的事件了)。
 ```java
 private Integer changeMemberGrowth(GrowthValueChangeEventBO eventBO, Long growthWaterId) {
