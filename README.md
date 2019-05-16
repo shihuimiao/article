@@ -117,8 +117,8 @@ private Integer changeMemberGrowth(GrowthValueChangeEventBO eventBO, Long growth
 
 ### 最后
 - 高并发的业务场景下一定要注意代码片段中是否存在线程不安全的地方，如果找到存在线程不安全的方法，则要采取使用锁，这里我们使用了乐观锁来控制并发问题(乐观锁要注意重试次数，至于重试次数设置为多少就看具体的业务来定)，至于为什么不用悲观锁(SELECT ... FOR UPDATE)考虑到性能和系统的吞吐量会下降
-祭上一张高并发下的架构图 
-![avatar](https://github.com/doocs/advanced-java/raw/master/images/high-concurrency-system-design.png)
+。祭上一张高并发下的架构图 
+![avatar](https://github.com/shihuimiao/study-log/blob/master/high-concurrency-system-design.png?raw=true)
 
 
 
