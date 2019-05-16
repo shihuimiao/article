@@ -113,7 +113,7 @@ private Integer changeMemberGrowth(GrowthValueChangeEventBO eventBO, Long growth
 ### 引申:
 - 下图是我以为的高并发下的解决方案
 ![avatar](https://github.com/shihuimiao/study-log/blob/master/high-concurrency-system-design.png?raw=true)
-- 实际上我所遇到的问题是上图没有涉及到的，所以说脱离了业务逻辑的设计都是刷流氓
+- 实际上我所遇到的问题是一个很小的点，但引起的问题确是致命的，所以说脱离了业务的设计都是在刷流氓。
 
 ### 总结：
 - 整个事件经历了三天，让我对并发之后产生的问题有了更多的思考，第一次出现并发问题我们只着眼于产生那个问题的点，没有从全局的角度来审视整个链路的问题导致解决了一个又产生了第二个问题，在之后的工作中要注意从业务着手先看有没有可以规避并发的产生，在没法规避并发的情况下就要仔细的考虑并发后会产生的一系列问题，从而逐个击破。
