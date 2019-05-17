@@ -12,55 +12,47 @@
 
 代码片段中 可以看出来先执行了changeMemberGrowthValue执行了update之后又去xretailMemberGrowthDao.selectByUid select了用户数据(这里update增加的数据和select的数据是同一张表的同一个字段)导致得到的数据不是这个事件产生的数据(因为拿到字段的值是并发下可能是多个事件update之后的值了)，最后多个线程都发布了等级变化事件(按照业务逻辑只有其中一个线程能触发)。
 ```java
-        public void onApplicationEvent(GrowthValueChangeEvent event) {
+    public void onApplicationEvent(GrowthValueChangeEvent event) {
         GrowthValueChangeEventBO eventBO = event.getGrowthValueChangeEventBO();
 
-        //判断是否存在uid
-        XretailMemberDO xretailMemberDO = xretailMemberDao.selectByUid(eventBO.getUid());
-
-        if (xretailMemberDO == null) {
-            logger.info("process growth value change event fail:{},member is not exists", eventBO);
-            return;
-        }
-
-        logger.info("process growth value change event:{}", eventBO);
-
+        //记录成长值变更流水
         Long growthWaterId = addMemberGrowthWater(eventBO);
 
         if (growthWaterId > 0) {
+        	//更新用户成长值表中的总成长值
             Integer update = changeMemberGrowthValue(eventBO);
             if (update == 0) {
-                logger.info("process update growth failed:{}", eventBO);
+                //记录错误日志
             }
-            changeMemberLevel(eventBO, growthWaterId);
+            //执行更新等级操作
+            changeMemberLevel(eventBO,growthWaterId)
         }
     }
     private Integer changeMemberLevel(GrowthValueChangeEventBO eventBO, Long growthWaterId) {
+    	//retry为了更新失败设置了重试次数变量
         int retry = 0;
+        //更新失败重试三次
         while (retry < 3) {
-            XretailMemberGrowthDO xretailMemberGrowthDO = xretailMemberGrowthDao.selectByUid(eventBO.getUid());
-            if (xretailMemberGrowthDO == null) {
+        	//读取用户当前成长值总数
+            MemberGrowthDO memberGrowthDO = memberGrowthDao.selectByUid(eventBO.getUid());
+            if (memberGrowthDO == null) {
                 return null;
             }
 
-            //获取等级
-            Integer level = GrowthWaterVipLimitMapEnum.getVipByGrowth(xretailMemberGrowthDO.getValue());
+            //计算用户当前等级
+            Integer level = GrowthWaterVipLimitMapEnum.getVipByGrowth(memberGrowthDO.getValue());
 
             //等级没变，不做处理
-            if (xretailMemberGrowthDO.getLevel().equals(level)) {
+            if (memberGrowthDO.getLevel().equals(level)) {
                 return null;
             }
 
-            //对于升级成V1以上的用户,保级处罚时不会降级到V0
-            if (xretailMemberGrowthDO.getLevel() > 0 && level < 1 && (eventBO.getSource() == GrowthWaterSourceConstans.SOURCE_LEVEL_TASK_REDUCE)) {
-                level = 1;
-            }
-
-            Integer version = xretailMemberGrowthDO.getVersion();
-            Integer updateRes = xretailMemberGrowthDao.updateMemberGrowthLevel(eventBO.getUid(), level, version);
+            //这个version就是更新版本号 数据库更新一次成长值就累加1，更新操作会判断version版本是否与数据库中的version相等，如果相等则执行更新操作(乐观锁)
+            Integer version = memberGrowthDO.getVersion();
+            Integer updateRes = memberGrowthDao.updateMemberGrowthLevel(eventBO.getUid(), level, version);
             if (updateRes > 0) {
                 //发布等级变化的事件
-                publishLevelChangeEvent(new LevelChangeEventBO(eventBO.getUid(), xretailMemberGrowthDO.getLevel(), level, DateUtils.getNowTime(), growthWaterId, eventBO.getSource()));
+                publishLevelChangeEvent(...));
                 return updateRes;
             }
             retry++;
@@ -71,30 +63,31 @@
 #### 解决办法:多并发下update添加一个版本号(乐观锁) 然后select在update之前 改变后的值是自己代码来控制
 代码片段中 先用xretailMemberGrowthDao.selectByUid(eventBO.getUid()) select数据库中最初的值,然后用updateMemberGrowthByUidWithVersion更新了数据库的数据(使用乐观锁),可以看到业务逻辑自己去计算了newValue的值，而不是从数据库中去select这样就避免了从数据库中读到的数据并不是自己想要的而是对业务来说的脏数据，这里使用乐观锁还有一个原因是考虑到了并发下可能多个线程共同更新数据成功，拿着后续的数据可能又会导致多个线程满足升级的逻辑，所以这里重试可以保证不会出现这种错误产生(因为一个线程读取的数据肯定是用户最新的数据，这时你拿到的用户newlevel已经是升级后的就不会再次去发布等级变更的事件了)。
 ```java
-private Integer changeMemberGrowth(GrowthValueChangeEventBO eventBO, Long growthWaterId) {
+    private Integer changeMemberGrowth(GrowthValueChangeEventBO eventBO, Long growthWaterId) {
         int retry = 0;
         while (retry < 3) {
-            XretailMemberGrowthDO xretailMemberGrowthDO = xretailMemberGrowthDao.selectByUid(eventBO.getUid());
+            MemberGrowthDO memberGrowthDO = memberGrowthDao.selectByUid(eventBO.getUid());
             if (xretailMemberGrowthDO == null) {
                 return 0;
             }
 
-            //获取等级
-            long newValue = xretailMemberGrowthDO.getValue() + eventBO.getValue();
+            //获取等级////////////////////////这里等级计算是通过计算得来的//////把更新用户成长值放到了后面
+            long newValue = memberGrowthDO.getValue() + eventBO.getValue();
 
             Integer newlevel = GrowthWaterVipLimitMapEnum.getVipByGrowth(newValue);
 
             //对于升级成V1以上的用户,保级处罚时不会降级到V0
-            if (xretailMemberGrowthDO.getLevel() > 0 && newlevel < 1 && (eventBO.getSource() == GrowthWaterSourceConstans.SOURCE_LEVEL_TASK_REDUCE)) {
+            if (memberGrowthDO.getLevel() > 0 && newlevel < 1 && (eventBO.getSource() ==                GrowthWaterSourceConstans.SOURCE_LEVEL_TASK_REDUCE)) {
                 newlevel = 1;
             }
 
-            Integer version = xretailMemberGrowthDO.getVersion();
-            Integer updateRes = xretailMemberGrowthDao.updateMemberGrowthByUidWithVersion(eventBO.getUid(), newlevel, eventBO.getValue(), version);
+            Integer version = memberGrowthDO.getVersion();
+            /////////////////这里更新了用户等级和成长值///////////////////////
+            Integer updateRes = xretailMemberGrowthDao.updateMemberGrowthByUidWithVersion(eventBO.getUid(), newlevel,        eventBO.getValue(), version);
             if (updateRes > 0) {
                 //发布等级变化的事件
                 if (newlevel > xretailMemberGrowthDO.getLevel()) {
-                    publishLevelChangeEvent(new LevelChangeEventBO(eventBO.getUid(), xretailMemberGrowthDO.getLevel(), newlevel, DateUtils.getNowTime(), growthWaterId, eventBO.getSource()));
+                    publishLevelChangeEvent(new LevelChangeEventBO(....));
                 }
                 return 1;
             }
