@@ -33,7 +33,7 @@
         int retry = 0;
         //更新失败重试三次
         while (retry < 3) {
-        	//读取用户当前成长值总数
+        	//读取用户当前成长值总数///////因为成长值是在上面已经累加完毕////这里读到的成长值可能是多个线程累加的结果
             MemberGrowthDO memberGrowthDO = memberGrowthDao.selectByUid(eventBO.getUid());
             if (memberGrowthDO == null) {
                 return null;
@@ -46,9 +46,8 @@
             if (memberGrowthDO.getLevel().equals(level)) {
                 return null;
             }
-
-            //这个version就是更新版本号 数据库更新一次成长值就累加1，更新操作会判断version版本是否与数据库中的version相等，如果相等则执行更新操作(乐观锁)
             Integer version = memberGrowthDO.getVersion();
+            //这里只更新用户等级//////成长值在上面已经更新过了
             Integer updateRes = memberGrowthDao.updateMemberGrowthLevel(eventBO.getUid(), level, version);
             if (updateRes > 0) {
                 //发布等级变化的事件
@@ -80,7 +79,7 @@
             if (memberGrowthDO.getLevel() > 0 && newlevel < 1 && (eventBO.getSource() ==                GrowthWaterSourceConstans.SOURCE_LEVEL_TASK_REDUCE)) {
                 newlevel = 1;
             }
-
+            //这个version就是更新版本号 数据库更新一次成长值就累加1，更新操作会判断version版本是否与数据库中的version相等，如果相等则执行更新操作(乐观锁)
             Integer version = memberGrowthDO.getVersion();
             /////////////////这里更新了用户等级和成长值///////////////////////
             Integer updateRes = xretailMemberGrowthDao.updateMemberGrowthByUidWithVersion(eventBO.getUid(), newlevel,        eventBO.getValue(), version);
