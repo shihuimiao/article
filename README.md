@@ -10,7 +10,7 @@
 一开始开发这块业务的时候并没有考虑到并发的问题，所以代码中先是update了数据之后又去select用户数据，导致select出来的是并发更新之后的结果(对业务逻辑来说这是脏数据)，所以多个线程都会发布等级变化的事件。监听了这个等级变更事件的所有listener都会执行后续操作(其中有个操作就是就是升级奖励,导致的后果就是用户获得多次升级奖励:如发卡券,奖励积分等)。下图展示的是两个(理解了两个之后就可以理解多个的情况)处理线程并发所可能产生的结果。
 ![avatar](https://github.com/shihuimiao/study-log/blob/master/WechatIMG65.png?raw=true)
 
-代码片段中 可以看出来先执行了changeMemberGrowthValue执行了update之后又去xretailMemberGrowthDao.selectByUid select了用户数据(这里update增加的数据和select的数据是同一张表的同一个字段)导致得到的数据不是这个事件产生的数据(因为拿到字段的值是并发下可能是多个事件update之后的值了)，最后多个线程都发布了等级变化事件(按照业务逻辑只有其中一个线程能触发)。
+代码片段中 可以看出来先执行了changeMemberGrowthValue执行了update之后又去memberGrowthDao.selectByUid select了用户数据(这里update增加的数据和select的数据是同一张表的同一个字段)导致得到的数据不是这个事件产生的数据(因为拿到字段的值是并发下可能是多个事件update之后的值了)，最后多个线程都发布了等级变化事件(按照业务逻辑只有其中一个线程能触发)。
 ```java
     public void onApplicationEvent(GrowthValueChangeEvent event) {
         GrowthValueChangeEventBO eventBO = event.getGrowthValueChangeEventBO();
@@ -38,7 +38,6 @@
             if (memberGrowthDO == null) {
                 return null;
             }
-
             //计算用户当前等级
             Integer level = GrowthWaterVipLimitMapEnum.getVipByGrowth(memberGrowthDO.getValue());
 
@@ -60,7 +59,7 @@
     }
 ```
 #### 解决办法:多并发下update添加一个版本号(乐观锁) 然后select在update之前 改变后的值是自己代码来控制
-代码片段中 先用xretailMemberGrowthDao.selectByUid(eventBO.getUid()) select数据库中最初的值,然后用updateMemberGrowthByUidWithVersion更新了数据库的数据(使用乐观锁),可以看到业务逻辑自己去计算了newValue的值，而不是从数据库中去select这样就避免了从数据库中读到的数据并不是自己想要的而是对业务来说的脏数据，这里使用乐观锁还有一个原因是考虑到了并发下可能多个线程共同更新数据成功，拿着后续的数据可能又会导致多个线程满足升级的逻辑，所以这里重试可以保证不会出现这种错误产生(因为一个线程读取的数据肯定是用户最新的数据，这时你拿到的用户newlevel已经是升级后的就不会再次去发布等级变更的事件了)。
+代码片段中 先用memberGrowthDao.selectByUid(eventBO.getUid()) select数据库中最初的值,然后用updateMemberGrowthByUidWithVersion更新了数据库的数据(使用乐观锁),可以看到业务逻辑自己去计算了newValue的值，而不是从数据库中去select这样就避免了从数据库中读到的数据并不是自己想要的而是对业务来说的脏数据，这里使用乐观锁还有一个原因是考虑到了并发下可能多个线程共同更新数据成功，拿着后续的数据可能又会导致多个线程满足升级的逻辑，所以这里重试可以保证不会出现这种错误产生(因为一个线程读取的数据肯定是用户最新的数据，这时你拿到的用户newlevel已经是升级后的就不会再次去发布等级变更的事件了)。
 ```java
     private Integer changeMemberGrowth(GrowthValueChangeEventBO eventBO, Long growthWaterId) {
         int retry = 0;
